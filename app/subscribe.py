@@ -47,11 +47,11 @@ class Subscribe:
 
     @property
     def default_rss_setting_tv(self):
-        return SystemConfig().get_system_config(SystemConfigKey.DefaultRssSettingTV) or {}
+        return SystemConfig().get(SystemConfigKey.DefaultRssSettingTV) or {}
 
     @property
     def default_rss_setting_mov(self):
-        return SystemConfig().get_system_config(SystemConfigKey.DefaultRssSettingMOV) or {}
+        return SystemConfig().get(SystemConfigKey.DefaultRssSettingMOV) or {}
 
     def add_rss_subscribe(self, mtype, name, year,
                           channel=None,
@@ -109,7 +109,11 @@ class Subscribe:
             return -1, "标题或类型有误", None
         year = int(year) if str(year).isdigit() else ""
         rss_sites = rss_sites or []
+        if isinstance(rss_sites, str):
+            rss_sites = rss_sites.split(",")
         search_sites = search_sites or []
+        if isinstance(search_sites, str):
+            search_sites = search_sites.split(",")
         over_edition = 1 if over_edition else 0
         filter_rule = int(filter_rule) if str(filter_rule).isdigit() else None
         total_ep = int(total_ep) if str(total_ep).isdigit() else None

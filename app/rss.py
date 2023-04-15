@@ -8,6 +8,7 @@ from app.filter import Filter
 from app.helper import DbHelper
 from app.media import Media
 from app.media.meta import MetaInfo
+from app.message import Message
 from app.sites import Sites, SiteConf
 from app.subscribe import Subscribe
 from app.utils import DomUtils, RequestUtils, StringUtils, ExceptionUtils, RssTitleUtils, Torrent
@@ -111,6 +112,8 @@ class Rss:
                 if not rss_url:
                     log.info(f"【Rss】{site_name} 未配置rssurl，跳过...")
                     continue
+                # 站点信息
+                site_id = site_info.get("id")
                 site_cookie = site_info.get("cookie")
                 site_ua = site_info.get("ua")
                 # 是否解析种子详情
@@ -125,7 +128,7 @@ class Rss:
                     site_order = 100 - int(site_info.get("pri"))
                 else:
                     site_order = 0
-                rss_acticles = self.parse_rssxml(rss_url)
+                rss_acticles = self.parse_rssxml(url=rss_url, site_name=site_name)
                 if not rss_acticles:
                     log.warn(f"【Rss】{site_name} 未下载到数据")
                     continue
@@ -177,6 +180,7 @@ class Rss:
                             media_info=media_info,
                             rss_movies=rss_movies,
                             rss_tvs=rss_tvs,
+                            site_id=site_id,
                             site_filter_rule=site_fliter_rule,
                             site_cookie=site_cookie,
                             site_parse=site_parse,
@@ -275,6 +279,10 @@ class Rss:
                             # 不做处理，直接下载
                             pass
 
+                        # 站点流控
+                        if self.sites.check_ratelimit(site_id):
+                            continue
+
                         # 设置种子信息
                         media_info.set_torrent_info(res_order=match_info.get("res_order"),
                                                     filter_rule=match_info.get("filter_rule"),
@@ -302,16 +310,22 @@ class Rss:
                                       rss_no_exists=rss_no_exists)
 
     @staticmethod
-    def parse_rssxml(url, proxy=False):
+    def parse_rssxml(url, site_name=None, proxy=False):
         """
         解析RSS订阅URL，获取RSS中的种子信息
         :param url: RSS地址
+        :param site_name: 站点名称
         :param proxy: 是否使用代理
         :return: 种子信息列表
         """
         _special_title_sites = {
             'pt.keepfrds.com': RssTitleUtils.keepfriends_title
         }
+
+        _rss_expired_msg = [
+            "RSS 链接已过期, 您需要获得一个新的!",
+            "RSS Link has expired, You need to get a new one!"
+        ]
 
         # 开始处理
         ret_array = []
@@ -378,6 +392,15 @@ class Rss:
                         ExceptionUtils.exception_traceback(e1)
                         continue
             except Exception as e2:
+                # RSS过期 观众RSS 链接已过期，您需要获得一个新的！  pthome RSS Link has expired, You need to get a new one!
+                if ret_xml in _rss_expired_msg:
+                    log.error(f"站点 {site_name} RSS链接已过期，请重新获取！")
+                    if site_name:
+                        # 发送消息
+                        Message().send_site_message(title="【RSS链接过期提醒】",
+                                                    text=f"站点：{site_name}\n"
+                                                         f"链接：{url}")
+                    return []
                 ExceptionUtils.exception_traceback(e2)
                 return ret_array
         return ret_array
@@ -386,6 +409,7 @@ class Rss:
                           media_info,
                           rss_movies,
                           rss_tvs,
+                          site_id,
                           site_filter_rule,
                           site_cookie,
                           site_parse,
@@ -396,6 +420,7 @@ class Rss:
         :param media_info: 已识别的种子媒体信息
         :param rss_movies: 电影订阅清单
         :param rss_tvs: 电视剧订阅清单
+        :param site_id: 站点ID
         :param site_filter_rule: 站点过滤规则
         :param site_cookie: 站点的Cookie
         :param site_parse: 是否解析种子详情
@@ -500,10 +525,15 @@ class Rss:
                 match_flag = True
                 match_rss_info = rss_info
                 break
+
         # 名称匹配成功，开始过滤
         if match_flag:
             # 解析种子详情
             if site_parse:
+                # 站点流控
+                if self.sites.check_ratelimit(site_id):
+                    match_msg.append("触发站点流控")
+                    return False, match_msg, match_rss_info
                 # 检测Free
                 torrent_attr = self.siteconf.check_torrent_attr(torrent_url=media_info.page_url,
                                                                 cookie=site_cookie,
