@@ -38,7 +38,7 @@ function ajax_post(cmd, params, handler, aync = true, show_progress = true) {
       if (xhr && xhr.status === 200) {
         handler({code: 0});
       } else {
-        handler({code: -99, msg: "网络错误"});
+        handler({code: -99, msg: "网络中断，如设置了反向代理，请检查代理的超时时间设置！"});
       }
     }
   });
@@ -200,6 +200,7 @@ function select_GetHiddenVAL(name) {
 /**
  * 获取元素下input设置
  * @param: id 元素id
+ * @param: prefix 配置前缀
  **/
 function input_select_GetVal(id, prefix = null) {
   let params = {};
@@ -402,4 +403,14 @@ function window_history(newflag = false, extra = undefined) {
     }
     window.history.replaceState(state, "");
   }
+}
+
+// selectgroup控制单选
+function check_selectgroup_raido(obj) {
+  // selectgroup控制单选
+  let btn_obj = $(obj);
+  let status = btn_obj.prop("checked");
+  // 当前项未选中则选中,已选中则取消选中
+  select_SelectALL(false, btn_obj.attr("name"));
+  btn_obj.prop("checked", status);
 }

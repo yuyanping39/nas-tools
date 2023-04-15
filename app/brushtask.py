@@ -96,6 +96,7 @@ class BrushTask(object):
             else:
                 site_url = ""
             downloader_info = self.downloader.get_downloader_conf(task.DOWNLOADER)
+            total_size = round(int(self.dbhelper.get_brushtask_totalsize(task.ID)) / (1024 ** 3), 1)
             _brush_tasks.append({
                 "id": task.ID,
                 "name": task.NAME,
@@ -103,6 +104,7 @@ class BrushTask(object):
                 "site_id": task.SITE,
                 "interval": task.INTEVAL,
                 "label": task.LABEL,
+                "savepath": task.SAVEPATH,
                 "state": True if task.STATE == "Y" else False,
                 "downloader": task.DOWNLOADER,
                 "downloader_name": downloader_info.get("name") if downloader_info else None,
@@ -112,6 +114,7 @@ class BrushTask(object):
                 "rss_rule": eval(task.RSS_RULE),
                 "remove_rule": eval(task.REMOVE_RULE),
                 "seed_size": task.SEED_SIZE,
+                "total_size": total_size,
                 "rss_url": task.RSSURL if task.RSSURL else site_info.get("rssurl"),
                 "rss_url_show": task.RSSURL,
                 "cookie": site_info.get("cookie"),
@@ -156,6 +159,8 @@ class BrushTask(object):
         if not site_info:
             log.error("【Brush】刷流任务 %s 的站点已不存在，无法刷流！" % task_name)
             return
+        # 站点属性
+        site_id = site_info.get("id")
         site_name = site_info.get("name")
         site_proxy = site_info.get("proxy")
 
@@ -177,7 +182,7 @@ class BrushTask(object):
                                            dlcount=rss_rule.get("dlcount")):
             return
 
-        rss_result = Rss.parse_rssxml(rss_url, proxy=site_proxy)
+        rss_result = Rss.parse_rssxml(url=rss_url, proxy=site_proxy)
         if len(rss_result) == 0:
             log.warn("【Brush】%s RSS未下载到数据" % site_name)
             return
@@ -217,9 +222,15 @@ class BrushTask(object):
                                              torrent_url=page_url,
                                              torrent_size=size,
                                              pubdate=pubdate,
+                                             siteid=site_id,
                                              cookie=cookie,
                                              ua=ua,
                                              proxy=site_proxy):
+                    continue
+                # 检查能否添加当前种子，判断是否超过保种体积大小
+                if not self.__is_allow_new_torrent(taskinfo=taskinfo,
+                                                   dlcount=rss_rule.get("dlcount"),
+                                                   torrent_size=size):
                     continue
                 # 开始下载
                 log.debug("【Brush】%s 符合条件，开始下载..." % torrent_name)
@@ -303,7 +314,7 @@ class BrushTask(object):
                     set(torrent_ids).difference(
                         set([(torrent.get("hash")
                               if downloader_type == 'qbittorrent'
-                              else str(torrent.id)) for torrent in torrents])))
+                              else str(torrent.hashString)) for torrent in torrents])))
                 # 完成的种子
                 for torrent in torrents:
                     torrent_info = self.__get_torrent_dict(downloader_type=downloader_type,
@@ -345,7 +356,7 @@ class BrushTask(object):
                     set(remove_torrent_ids).difference(
                         set([(torrent.get("hash")
                               if downloader_type == 'qbittorrent'
-                              else str(torrent.id)) for torrent in torrents])))
+                              else str(torrent.hashString)) for torrent in torrents])))
                 # 下载中的种子
                 for torrent in torrents:
                     torrent_info = self.__get_torrent_dict(downloader_type=downloader_type,
@@ -420,18 +431,24 @@ class BrushTask(object):
             except Exception as e:
                 ExceptionUtils.exception_traceback(e)
 
-    def __is_allow_new_torrent(self, taskinfo, dlcount):
+    def __is_allow_new_torrent(self, taskinfo, dlcount, torrent_size=None):
         """
         检查是否还能添加新的下载
         """
         if not taskinfo:
             return False
         # 判断大小
-        seed_size = taskinfo.get("seed_size")
+        seed_size = taskinfo.get("seed_size") or None
         task_name = taskinfo.get("name")
         downloader_id = taskinfo.get("downloader")
         downloader_name = taskinfo.get("downloader_name")
         total_size = self.dbhelper.get_brushtask_totalsize(taskinfo.get("id"))
+        if torrent_size and seed_size:
+            if float(torrent_size) + int(total_size) >= (float(seed_size) + 5) * 1024 ** 3:
+                log.warn("【Brush】刷流任务 %s 当前保种体积 %sGB，种子大小 %sGB，不添加刷流任务"
+                         % (task_name, round(int(total_size) / (1024 ** 3), 1),
+                            round(int(torrent_size) / (1024 ** 3), 1)))
+                return False
         if seed_size:
             if float(seed_size) * 1024 ** 3 <= int(total_size):
                 log.warn("【Brush】刷流任务 %s 当前保种体积 %sGB，不再新增下载"
@@ -475,6 +492,9 @@ class BrushTask(object):
         """
         if not enclosure:
             return False
+        # 站点流控
+        if self.sites.check_ratelimit(site_info.get("id")):
+            return False
         taskid = taskinfo.get("id")
         taskname = taskinfo.get("name")
         transfer = taskinfo.get("transfer")
@@ -482,6 +502,7 @@ class BrushTask(object):
         downloader_id = taskinfo.get("downloader")
         download_limit = rss_rule.get("downspeed")
         upload_limit = rss_rule.get("upspeed")
+        download_dir = taskinfo.get("savepath")
         tag = taskinfo.get("label").split(',') if taskinfo.get("label") else None
         # 标签
         if not transfer:
@@ -498,9 +519,11 @@ class BrushTask(object):
             media_info=meta_info,
             tag=tag,
             downloader_id=downloader_id,
+            download_dir=download_dir,
             download_setting="-2",
             download_limit=download_limit,
             upload_limit=upload_limit,
+            is_auto=False if download_dir else None
         )
         if not download_id:
             # 下载失败
@@ -536,6 +559,7 @@ class BrushTask(object):
                          torrent_url,
                          torrent_size,
                          pubdate,
+                         siteid,
                          cookie,
                          ua,
                          proxy):
@@ -546,6 +570,7 @@ class BrushTask(object):
         :param torrent_url: 种子页面地址
         :param torrent_size: 种子大小
         :param pubdate: 发布时间
+        :param siteid: 站点ID
         :param cookie: Cookie
         :param ua: User-Agent
         :return: 是否命中
@@ -581,6 +606,10 @@ class BrushTask(object):
             if rss_rule.get("exclude"):
                 if re.search(r"%s" % rss_rule.get("exclude"), title):
                     return False
+
+            # 站点流控
+            if self.sites.check_ratelimit(siteid):
+                return False
 
             torrent_attr = self.siteconf.check_torrent_attr(torrent_url=torrent_url,
                                                             cookie=cookie,
@@ -742,7 +771,7 @@ class BrushTask(object):
             total_size = torrent.get("total_size")
         else:
             # ID
-            torrent_id = torrent.id
+            torrent_id = torrent.hashString
             # 做种时间
             date_done = torrent.date_done or torrent.date_added
             # 下载耗时

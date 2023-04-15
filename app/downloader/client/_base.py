@@ -157,7 +157,9 @@ class _IDownloadClient(metaclass=ABCMeta):
         """
         try:
             for directory in download_dir:
-                if os.path.commonpath([directory['save_path'], path]) == directory['save_path']:
+                if path \
+                        and directory['save_path'] \
+                        and os.path.commonpath([directory['save_path'], path]) == directory['save_path']:
                     return True
             return False
         except Exception as e:
@@ -182,5 +184,12 @@ class _IDownloadClient(metaclass=ABCMeta):
     def set_speed_limit(self, **kwargs):
         """
         设置速度限制
+        """
+        pass
+
+    @abstractmethod
+    def recheck_torrents(self, ids):
+        """
+        下载控制：重新校验
         """
         pass

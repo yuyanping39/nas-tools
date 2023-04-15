@@ -148,7 +148,7 @@
                 <div class="datagrid-item">
                   <div class="datagrid-title">保种体积</div>
                   <div class="datagrid-content">
-                    {% if Task.seed_size %}{{ Task.seed_size }} GB{% else %}无限制{% endif %}</div>
+                    {% if Task.seed_size %}{{ Task.total_size }} GB / {{ Task.seed_size }} GB{% else %}无限制{% endif %}</div>
                 </div>
                 <div class="datagrid-item">
                   <div class="datagrid-title">刷新间隔</div>
@@ -212,6 +212,12 @@
                     {% if Task.label %}
                     <span class="badge">{{ Task.label }}</span>
                     {% endif %}
+                  </div>
+                </div>
+                <div class="datagrid-item">
+                  <div class="datagrid-title">保存目录</div>
+                  <div class="datagrid-content">
+                    {{ Task.savepath or ''}}
                   </div>
                 </div>
                 <div class="datagrid-item">
@@ -288,7 +294,7 @@
           <div class="col-lg-4">
             <div class="mb-3">
               <label class="form-label">保种体积(GB) <span class="form-help"
-                                                           title="该任务所有下载任务的保种体积超过设定值时不再新增下载"
+                                                           title="该任务所有下载任务的保种体积超过设定值时不再新增下载，冗余量5GB，即实际最多超过设定保种体积5GB"
                                                            data-bs-toggle="tooltip">?</span></label>
               <input type="text" id="brushtask_totalsize" class="form-control" placeholder="">
             </div>
@@ -302,20 +308,32 @@
               </select>
             </div>
           </div>
-          <div class="col-lg-8">
-            <div class="mb-3">
-              <label class="form-label">RSS地址 <span class="form-help"
-                                                           title="刷流优先使用此处填入的站点RSS，若为空则使用站点配置RSS地址"
-                                                           data-bs-toggle="tooltip">?</span></label>
-              <input type="text" id="brushtask_rssurl" class="form-control" placeholder="站点RSS订阅URL，若为空则使用站点配置RSS地址">
-            </div>
-          </div>
+        </div>
+        <div class="row">
           <div class="col-lg-4">
             <div class="mb-3">
               <label class="form-label">标签 <span class="form-help"
                                                            title="用户在下载器中标记该任务的种子，多个标签使用,分隔"
                                                            data-bs-toggle="tooltip">?</span></label>
               <input type="text" id="brushtask_label" class="form-control" placeholder="多个标签使用,分隔">
+            </div>
+          </div>
+          <div class="col-lg-8">
+            <div class="mb-3">
+              <label class="form-label">保存目录 <span class="form-help"
+                                                           title="为该刷新任务设置独立的保存目录，将会覆盖下载器中的目录设置，如果下载器为Qbittorrent还需要在NAStool下载器设置中关闭种子自动管理功能"
+                                                           data-bs-toggle="tooltip">?</span></label>
+              <input type="text" id="brushtask_savepath" class="form-control" placeholder="留空使用下载器设置">
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-lg">
+            <div class="mb-3">
+              <label class="form-label">RSS地址 <span class="form-help"
+                                                           title="刷流优先使用此处填入的站点RSS，若为空则使用站点配置RSS地址"
+                                                           data-bs-toggle="tooltip">?</span></label>
+              <input type="text" id="brushtask_rssurl" class="form-control" placeholder="站点RSS订阅URL，若为空则使用站点配置RSS地址">
             </div>
           </div>
         </div>
@@ -718,6 +736,7 @@
         $("#brushtask_include").val(ret.task.rss_rule.include);
         $("#brushtask_exclude").val(ret.task.rss_rule.exclude);
         $("#brushtask_label").val(ret.task.label);
+        $("#brushtask_savepath").val(ret.task.savepath);
         //种子大小
         if (ret.task.rss_rule.size) {
           let size_str = ret.task.rss_rule.size.split('#');
@@ -881,6 +900,7 @@
     }
     let brushtask_rssurl = $("#brushtask_rssurl").val();
     let brushtask_label = $("#brushtask_label").val();
+    let brushtask_savepath = $("#brushtask_savepath").val();
     let brushtask_state = $("#brushtask_state").val();
     let brushtask_transfer = $("#brushtask_transfer").prop('checked');
     let brushtask_sendmessage = $("#brushtask_sendmessage").prop('checked');
@@ -1051,6 +1071,7 @@
       brushtask_downloader: brushtask_downloader,
       brushtask_totalsize: brushtask_totalsize,
       brushtask_label: brushtask_label,
+      brushtask_savepath: brushtask_savepath,
       brushtask_state: brushtask_state,
       brushtask_transfer: brushtask_transfer,
       brushtask_sendmessage: brushtask_sendmessage,

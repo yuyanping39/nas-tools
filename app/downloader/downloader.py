@@ -104,7 +104,6 @@ class Downloader:
                 "name": "预设",
                 "category": '',
                 "tags": PT_TAG,
-                "content_layout": 0,
                 "is_paused": 0,
                 "upload_limit": 0,
                 "download_limit": 0,
@@ -131,7 +130,6 @@ class Downloader:
                 "name": download_setting.NAME,
                 "category": download_setting.CATEGORY,
                 "tags": download_setting.TAGS,
-                "content_layout": download_setting.CONTENT_LAYOUT,
                 "is_paused": download_setting.IS_PAUSED,
                 "upload_limit": download_setting.UPLOAD_LIMIT,
                 "download_limit": download_setting.DOWNLOAD_LIMIT,
@@ -157,7 +155,7 @@ class Downloader:
         """
         获取默认下载器id
         """
-        default_downloader_id = SystemConfig().get_system_config(SystemConfigKey.DefaultDownloader)
+        default_downloader_id = SystemConfig().get(SystemConfigKey.DefaultDownloader)
         if not default_downloader_id or not self.get_downloader_conf(default_downloader_id):
             default_downloader_id = ""
         return default_downloader_id
@@ -168,7 +166,7 @@ class Downloader:
         获取默认下载设置
         :return: 默认下载设置id
         """
-        default_download_setting_id = SystemConfig().get_system_config(SystemConfigKey.DefaultDownloadSetting) or "-1"
+        default_download_setting_id = SystemConfig().get(SystemConfigKey.DefaultDownloadSetting) or "-1"
         if not self._download_settings.get(default_download_setting_id):
             default_download_setting_id = "-1"
         return default_download_setting_id
@@ -254,7 +252,8 @@ class Downloader:
                  download_limit=None,
                  torrent_file=None,
                  in_from=None,
-                 user_name=None):
+                 user_name=None,
+                 is_auto=None):
         """
         添加下载任务，根据当前使用的下载器分别调用不同的客户端处理
         :param media_info: 需下载的媒体信息，含URL地址
@@ -268,6 +267,7 @@ class Downloader:
         :param torrent_file: 种子文件路径
         :param in_from: 来源
         :param user_name: 用户名
+        :param is_auto: 是否开始自动管理模式
         :return: 下载器类型, 种子ID，错误信息
         """
 
@@ -381,16 +381,7 @@ class Downloader:
                         tags = tag
                     else:
                         tags = [tag]
-            # 布局
-            content_layout = download_attr.get("content_layout")
-            if content_layout == 1:
-                content_layout = "Original"
-            elif content_layout == 2:
-                content_layout = "Subfolder"
-            elif content_layout == 3:
-                content_layout = "NoSubfolder"
-            else:
-                content_layout = ""
+
             # 暂停
             if is_paused is None:
                 is_paused = StringUtils.to_bool(download_attr.get("is_paused"))
@@ -430,7 +421,7 @@ class Downloader:
                                              download_dir=download_dir,
                                              cookie=site_info.get("cookie"))
                 if ret:
-                    download_id = ret.id
+                    download_id = ret.hashString
                     downloader.change_torrent(tid=download_id,
                                               tag=tags,
                                               upload_limit=upload_limit,
@@ -444,12 +435,14 @@ class Downloader:
                     tags += [torrent_tag]
                 else:
                     tags = [torrent_tag]
+                # 布局默认原始
                 ret = downloader.add_torrent(content,
                                              is_paused=is_paused,
+                                             is_auto=is_auto,
                                              download_dir=download_dir,
                                              tag=tags,
                                              category=category,
-                                             content_layout=content_layout,
+                                             content_layout="Original",
                                              upload_limit=upload_limit,
                                              download_limit=download_limit,
                                              ratio_limit=ratio_limit,
@@ -467,27 +460,41 @@ class Downloader:
                 download_id = ret
             # 添加下载成功
             if ret:
-                # 登记下载历史
+                # 计算数据文件保存的路径
+                save_dir = subtitle_dir = None
+                visit_dir = self.get_download_visit_dir(download_dir)
+                if visit_dir:
+                    if dl_files_folder:
+                        # 种子文件带目录
+                        save_dir = os.path.join(visit_dir, dl_files_folder)
+                        subtitle_dir = save_dir
+                    elif dl_files:
+                        # 种子文件为单独文件
+                        save_dir = os.path.join(visit_dir, dl_files[0])
+                        subtitle_dir = visit_dir
+                    else:
+                        save_dir = None
+                        subtitle_dir = visit_dir
+                # 登记下载历史，记录下载目录
                 self.dbhelper.insert_download_history(media_info=media_info,
                                                       downloader=downloader_id,
-                                                      download_id=download_id)
+                                                      download_id=download_id,
+                                                      save_dir=save_dir)
                 # 下载站点字幕文件
                 if page_url \
-                        and download_dir \
-                        and dl_files \
+                        and subtitle_dir \
                         and site_info \
                         and site_info.get("subtitle"):
-                    # 下载访问目录
-                    visit_dir = self.get_download_visit_dir(download_dir)
-                    if visit_dir:
-                        if dl_files_folder:
-                            subtitle_dir = os.path.join(visit_dir, dl_files_folder)
-                        else:
-                            subtitle_dir = visit_dir
-                        ThreadHelper().start_thread(
-                            self.sitesubtitle.download,
-                            (media_info, site_info.get("cookie"), site_info.get("ua"), subtitle_dir)
+                    ThreadHelper().start_thread(
+                        self.sitesubtitle.download,
+                        (
+                            media_info,
+                            site_info.get("id"),
+                            site_info.get("cookie"),
+                            site_info.get("ua"),
+                            subtitle_dir
                         )
+                    )
                 # 发送下载消息
                 if in_from:
                     media_info.user_name = user_name
@@ -1317,3 +1324,17 @@ class Downloader:
         if not state:
             log.error(f"【Downloader】下载器连接测试失败")
         return state
+
+    def recheck_torrents(self, downloader_id=None, ids=None):
+        """
+        下载控制：重新校验种子
+        :param downloader_id: 下载器ID
+        :param ids: 种子ID列表
+        :return: 处理状态
+        """
+        if not ids:
+            return False
+        _client = self.__get_client(downloader_id) if downloader_id else self.default_client
+        if not _client:
+            return False
+        return _client.recheck_torrents(ids)
