@@ -10,7 +10,6 @@ from bencode import bdecode, bencode
 
 from app.downloader import Downloader
 from app.media.meta import MetaInfo
-from app.message import Message
 from app.plugins.modules._base import _IPluginModule
 from app.utils import Torrent
 from app.utils.types import DownloaderType
@@ -43,7 +42,6 @@ class TorrentTransfer(_IPluginModule):
     _scheduler = None
     downloader = None
     sites = None
-    message = None
     # 限速开关
     _enable = False
     _cron = None
@@ -209,25 +207,29 @@ class TorrentTransfer(_IPluginModule):
                     # 同一行
                     [
                         {
+                            'title': '校验完成后自动开始',
+                            'required': "",
+                            'tooltip': '自动开始目的下载器中校验完成且100%完整的种子，校验不完整的不会处理',
+                            'type': 'switch',
+                            'default': True,
+                            'id': 'autostart',
+                        },
+                        {
                             'title': '删除源种子',
                             'required': "",
                             'tooltip': '转移成功后删除源下载器中的种子，首次运行请不要打开，避免种子丢失',
                             'type': 'switch',
                             'id': 'deletesource',
-                        },
+                        }
+
+                    ],
+                    [
                         {
                             'title': '运行时通知',
                             'required': "",
                             'tooltip': '运行任务后会发送通知（需要打开插件消息通知）',
                             'type': 'switch',
                             'id': 'notify',
-                        },
-                        {
-                            'title': '校验成功后开始',
-                            'required': "",
-                            'tooltip': '自动开始目的下载器中处于校验成功且暂停状态的种子',
-                            'type': 'switch',
-                            'id': 'autostart',
                         },
                         {
                             'title': '立即运行一次',
@@ -243,9 +245,7 @@ class TorrentTransfer(_IPluginModule):
 
     def init_config(self, config=None):
         self.downloader = Downloader()
-        self.message = Message()
         # 读取配置
-
         if config:
             self._enable = config.get("enable")
             self._onlyonce = config.get("onlyonce")
@@ -467,7 +467,6 @@ class TorrentTransfer(_IPluginModule):
                     downloader_id=todownloader,
                     download_dir=download_dir,
                     download_setting="-2",
-                    is_auto=False
                 )
                 if not download_id:
                     # 下载失败
@@ -507,7 +506,7 @@ class TorrentTransfer(_IPluginModule):
                 self.check_recheck()
             # 发送通知
             if self._notify:
-                self.message.send_plugin_message(
+                self.send_message(
                     title="【移转做种任务执行完成】",
                     text=f"总数：{total}，成功：{success}，失败：{fail}"
                 )

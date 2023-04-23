@@ -1,3 +1,6 @@
+import io
+from functools import lru_cache
+
 import cn2an
 
 from app.media import Media, Bangumi, DouBan
@@ -187,3 +190,21 @@ class WebUtils:
                 else:
                     EndPage = total_page
         return range(StartPage, EndPage + 1)
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def request_cache(url):
+        ret = RequestUtils().get_res(url)
+        if ret:
+            return ret.content
+        return None
+
+    @staticmethod
+    def get_image_stream(url):
+        """
+        根据地址下载图片
+        """
+        result = WebUtils.request_cache(url)
+        if result:
+            return io.BytesIO(result)
+        return None

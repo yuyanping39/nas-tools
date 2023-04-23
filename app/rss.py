@@ -19,7 +19,6 @@ lock = Lock()
 
 
 class Rss:
-    _sites = []
     filter = None
     media = None
     sites = None
@@ -40,14 +39,13 @@ class Rss:
         self.filter = Filter()
         self.dbhelper = DbHelper()
         self.subscribe = Subscribe()
-        self._sites = self.sites.get_sites(rss=True)
 
     def rssdownload(self):
         """
-        RSS订阅检索下载入口，由定时服务调用
+        RSS订阅搜索下载入口，由定时服务调用
         """
-
-        if not self._sites:
+        rss_sites_info = self.sites.get_sites(rss=True)
+        if not rss_sites_info:
             return
 
         with lock:
@@ -99,12 +97,12 @@ class Rss:
             # 缺失的资源详情
             rss_no_exists = {}
             # 遍历站点资源
-            for site_info in self._sites:
+            for site_info in rss_sites_info:
                 if not site_info:
                     continue
                 # 站点名称
                 site_name = site_info.get("name")
-                # 没有订阅的站点中的不检索
+                # 没有订阅的站点中的不搜索
                 if check_sites and site_name not in check_sites:
                     continue
                 # 站点rss链接
@@ -152,7 +150,7 @@ class Rss:
                         if self.dbhelper.is_torrent_rssd(enclosure):
                             log.info(f"【Rss】{title} 已成功订阅过")
                             continue
-                        # 识别种子名称，开始检索TMDB
+                        # 识别种子名称，开始搜索TMDB
                         media_info = MetaInfo(title=title)
                         cache_info = self.media.get_cache_info(media_info)
                         if cache_info.get("id"):

@@ -381,6 +381,25 @@ class SiteUserInfo(object):
         site_seeding_info["seeding_info"] = json.loads(seeding_info[0])
         return site_seeding_info
 
+    def get_pt_site_min_join_date(self, sites=None):
+        """
+        查询站点加入时间
+        """
+        statistics = self.get_site_user_statistics(sites=sites, encoding="DICT")
+        if not statistics:
+            return ""
+        dates = []
+        for s in statistics:
+            if s.get("join_at"):
+                try:
+                    dates.append(datetime.strptime(s.get("join_at"), '%Y-%m-%d %H:%M:%S'))
+                except Exception as err:
+                    print(str(err))
+                    pass
+        if dates:
+            return min(dates).strftime("%Y-%m-%d")
+        return ""
+
     @staticmethod
     def __todict(raw_statistics):
         statistics = []
